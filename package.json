@@ -1,0 +1,9 @@
+{
+  "name": "ipl-intelligence-hub",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "backtest": "node backtest.js"
+  }
+}

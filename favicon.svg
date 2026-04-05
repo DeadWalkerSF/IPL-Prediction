@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">IPL Match Studio</title>
+  <desc id="desc">A cricket-inspired gradient badge for IPL Match Studio.</desc>
+  <defs>
+    <linearGradient id="bg" x1="12%" y1="8%" x2="88%" y2="92%">
+      <stop offset="0%" stop-color="#163248"/>
+      <stop offset="55%" stop-color="#0c1927"/>
+      <stop offset="100%" stop-color="#07111b"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#f4b860"/>
+      <stop offset="100%" stop-color="#58c2e0"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
+  <rect x="10" y="10" width="108" height="108" rx="26" fill="none" stroke="url(#ring)" stroke-width="4"/>
+  <circle cx="64" cy="54" r="23" fill="#f4b860"/>
+  <path d="M52 41c6 2 12 3 18 2M53 68c6-1 12 0 18 3" fill="none" stroke="#f8ebcd" stroke-linecap="round" stroke-width="3"/>
+  <path d="M48 86h32" fill="none" stroke="#58c2e0" stroke-linecap="round" stroke-width="7"/>
+  <path d="M58 74v20M70 74v20" fill="none" stroke="#58c2e0" stroke-linecap="round" stroke-width="6"/>
+</svg>

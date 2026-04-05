@@ -1,0 +1,17 @@
+{
+  "name": "IPL Match Studio",
+  "short_name": "IPL Studio",
+  "description": "Smarter IPL predictions, venue trends, recent form, and team dashboards in one polished cricket app.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08131d",
+  "theme_color": "#08131d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
