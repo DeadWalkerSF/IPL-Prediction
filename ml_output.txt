@@ -1,0 +1,36 @@
+IPL Match Studio Probability Backtest
+
+Type: walk-forward
+Coverage: 95.2% (1038/1090 matches)
+Accuracy: 57% -> 74%
+Average confidence: 66.5% -> 62.2%
+Brier score: 0.22 -> 0.187
+Log loss: 0.624 -> 0.561
+Calibration gap: 16.6 pts -> 12.1 pts
+Minimum prior matches per team: 5
+Uses actual toss winner: yes
+Calibrator: platt (slope 1.2155, intercept -0.5767)
+
+Calibration
+┌─────────┬──────────┬─────────┬───────────┬─────────┬────────────┐
+│ (index) │ Bucket   │ Matches │ Predicted │ Actual  │ Gap        │
+├─────────┼──────────┼─────────┼───────────┼─────────┼────────────┤
+│ 0       │ '50-59%' │ 402     │ '54.4%'   │ '53.7%' │ '-0.7 pts' │
+│ 1       │ '60-69%' │ 388     │ '63.5%'   │ '81.4%' │ '18.0 pts' │
+│ 2       │ '70-79%' │ 248     │ '72.8%'   │ '94.4%' │ '21.5 pts' │
+└─────────┴──────────┴─────────┴───────────┴─────────┴────────────┘
+Recent replayed predictions
+┌─────────┬──────────────┬──────────────────────────────────────────────────────┬───────────────────────────────┬───────────────────────────────┬────────────┬────────┐
+│ (index) │ Date         │ Match                                                │ Predicted                     │ Actual                        │ Confidence │ Result │
+├─────────┼──────────────┼──────────────────────────────────────────────────────┼───────────────────────────────┼───────────────────────────────┼────────────┼────────┤
+│ 0       │ '2024-05-26' │ 'Sunrisers Hyderabad vs Kolkata Knight Riders'       │ 'Sunrisers Hyderabad'         │ 'Kolkata Knight Riders'       │ '57%'      │ 'Miss' │
+│ 1       │ '2024-05-24' │ 'Sunrisers Hyderabad vs Rajasthan Royals'            │ 'Sunrisers Hyderabad'         │ 'Sunrisers Hyderabad'         │ '70%'      │ 'Hit'  │
+│ 2       │ '2024-05-22' │ 'Royal Challengers Bengaluru vs Rajasthan Royals'    │ 'Royal Challengers Bengaluru' │ 'Rajasthan Royals'            │ '57%'      │ 'Miss' │
+│ 3       │ '2024-05-21' │ 'Sunrisers Hyderabad vs Kolkata Knight Riders'       │ 'Kolkata Knight Riders'       │ 'Kolkata Knight Riders'       │ '56%'      │ 'Hit'  │
+│ 4       │ '2024-05-19' │ 'Punjab Kings vs Sunrisers Hyderabad'                │ 'Sunrisers Hyderabad'         │ 'Sunrisers Hyderabad'         │ '60%'      │ 'Hit'  │
+│ 5       │ '2024-05-18' │ 'Royal Challengers Bengaluru vs Chennai Super Kings' │ 'Royal Challengers Bengaluru' │ 'Royal Challengers Bengaluru' │ '61%'      │ 'Hit'  │
+│ 6       │ '2024-05-17' │ 'Lucknow Super Giants vs Mumbai Indians'             │ 'Lucknow Super Giants'        │ 'Lucknow Super Giants'        │ '66%'      │ 'Hit'  │
+│ 7       │ '2024-05-15' │ 'Rajasthan Royals vs Punjab Kings'                   │ 'Rajasthan Royals'            │ 'Punjab Kings'                │ '66%'      │ 'Miss' │
+│ 8       │ '2024-05-14' │ 'Delhi Capitals vs Lucknow Super Giants'             │ 'Delhi Capitals'              │ 'Delhi Capitals'              │ '52%'      │ 'Hit'  │
+│ 9       │ '2024-05-12' │ 'Royal Challengers Bengaluru vs Delhi Capitals'      │ 'Royal Challengers Bengaluru' │ 'Royal Challengers Bengaluru' │ '66%'      │ 'Hit'  │
+└─────────┴──────────────┴──────────────────────────────────────────────────────┴───────────────────────────────┴───────────────────────────────┴────────────┴────────┘

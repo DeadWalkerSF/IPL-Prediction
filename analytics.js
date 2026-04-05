@@ -1,4 +1,5 @@
 const fs = require("fs");
+const { RandomForestClassifier } = require("ml-random-forest");
 
 const TEAM_ALIASES = {
   "Delhi Daredevils": "Delhi Capitals",
@@ -183,7 +184,8 @@ function createBatterRecord(name) {
     outs: 0,
     fours: 0,
     sixes: 0,
-    matches: new Set()
+    matches: new Set(),
+    versus: new Map()
   };
 }
 
@@ -194,7 +196,8 @@ function createBowlerRecord(name) {
     runsConceded: 0,
     wickets: 0,
     dotBalls: 0,
-    matches: new Set()
+    matches: new Set(),
+    versus: new Map()
   };
 }
 
@@ -222,6 +225,9 @@ function createVenueRecord(name) {
     matches: 0,
     totalRuns: 0,
     firstInningsRuns: 0,
+    secondInningsRuns: 0,
+    firstInningsWins: 0,
+    secondInningsWins: 0,
     teamWins: new Map()
   };
 }
@@ -393,6 +399,26 @@ function average(values) {
   return filtered.reduce((sum, value) => sum + value, 0) / filtered.length;
 }
 
+function exponentialAverage(values) {
+  const filtered = values.filter(value => Number.isFinite(value));
+  if (filtered.length === 0) {
+    return 0;
+  }
+  
+  const decayBase = 0.60;
+  let totalWeight = 0;
+  let weightedSum = 0;
+  
+  for (let i = 0; i < filtered.length; i++) {
+     const value = filtered[filtered.length - 1 - i];
+     const weight = Math.pow(decayBase, i);
+     weightedSum += value * weight;
+     totalWeight += weight;
+  }
+  
+  return weightedSum / totalWeight;
+}
+
 function fitProbabilityCalibrator(samples) {
   const usableSamples = samples.filter(sample =>
     Number.isFinite(sample.probability) &&
@@ -558,6 +584,23 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
   const matches = loadMatches(matchesPath);
   const deliveries = loadDeliveries(deliveriesPath);
 
+  let globalMLModel = null;
+  let mlTrainingDataset = [];
+
+  function extractMlFeatures(scoreParts) {
+    return [
+      scoreParts.overall.team1 - scoreParts.overall.team2,
+      scoreParts.recent.team1 - scoreParts.recent.team2,
+      scoreParts.batting.team1 - scoreParts.batting.team2,
+      scoreParts.bowling.team1 - scoreParts.bowling.team2,
+      scoreParts.venue.team1 - scoreParts.venue.team2,
+      scoreParts.headToHead.team1 - scoreParts.headToHead.team2,
+      scoreParts.phases.team1 - scoreParts.phases.team2,
+      scoreParts.toss.team1 - scoreParts.toss.team2,
+      scoreParts.playerImpact.team1 - scoreParts.playerImpact.team2
+    ];
+  }
+
   const teams = new Map();
   const players = new Map();
   const venues = new Map();
@@ -615,6 +658,16 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
     venueRecord.matches += 1;
     ensureMapEntry(venueRecord.teamWins, match.winner, () => ({ wins: 0 })).wins += 1;
+    
+    const winnerWonToss = match.winner === match.tossWinner;
+    const tossDecision = match.tossDecision.toLowerCase();
+    const teamWonChasing = (winnerWonToss && tossDecision === 'field') || (!winnerWonToss && tossDecision === 'bat');
+    
+    if (teamWonChasing) {
+      venueRecord.secondInningsWins += 1;
+    } else {
+      venueRecord.firstInningsWins += 1;
+    }
 
     if (match.playerOfMatch) {
       const playerRecord = ensureMapEntry(players, match.playerOfMatch, () => createPlayerRecord(match.playerOfMatch));
@@ -691,6 +744,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
     venueRecord.totalRuns += delivery.totalRuns;
     if (delivery.inning === 1) {
       venueRecord.firstInningsRuns += delivery.totalRuns;
+    } else if (delivery.inning === 2) {
+      venueRecord.secondInningsRuns += delivery.totalRuns;
     }
 
     if (delivery.batter) {
@@ -699,6 +754,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
       const playerRecord = ensureMapEntry(players, delivery.batter, () => createPlayerRecord(delivery.batter));
       addBattingContribution(playerRecord.batting, delivery);
+      const batterVersus = ensureMapEntry(playerRecord.batting.versus, delivery.bowlingTeam, () => createBatterRecord(delivery.batter));
+      addBattingContribution(batterVersus, delivery);
 
       const teamContribution = ensureMapEntry(playerRecord.teams, delivery.battingTeam, () => ({
         battingRuns: 0,
@@ -715,6 +772,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
       const playerRecord = ensureMapEntry(players, delivery.playerDismissed, () => createPlayerRecord(delivery.playerDismissed));
       addDismissal(playerRecord.batting, match.id);
+      const batterVersus = ensureMapEntry(playerRecord.batting.versus, delivery.bowlingTeam, () => createBatterRecord(delivery.playerDismissed));
+      addDismissal(batterVersus, match.id);
 
       const teamContribution = ensureMapEntry(playerRecord.teams, delivery.battingTeam, () => ({
         battingRuns: 0,
@@ -730,6 +789,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
       const playerRecord = ensureMapEntry(players, delivery.bowler, () => createPlayerRecord(delivery.bowler));
       addBowlingContribution(playerRecord.bowling, delivery);
+      const bowlerVersus = ensureMapEntry(playerRecord.bowling.versus, delivery.battingTeam, () => createBowlerRecord(delivery.bowler));
+      addBowlingContribution(bowlerVersus, delivery);
 
       const teamContribution = ensureMapEntry(playerRecord.teams, delivery.bowlingTeam, () => ({
         battingRuns: 0,
@@ -941,16 +1002,16 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
     return {
       sampleSize: recentMatches.length,
       wins: recentMatches.filter(match => match.won).length,
-      rate: safeDivide(recentMatches.filter(match => match.won).length, recentMatches.length),
+      rate: exponentialAverage(recentMatches.map(match => (match.won ? 1 : 0))),
       streak: recentMatches.map(match => (match.won ? "W" : "L")),
-      battingRunRate: average(recentMatches.map(match => match.batting.runRate)),
-      avgScore: average(recentMatches.map(match => match.batting.runs)),
-      bowlingEconomy: average(recentMatches.map(match => match.bowling.economy)),
-      dotRate: average(recentMatches.map(match => match.bowling.dotRate)),
-      wicketsPerMatch: average(recentMatches.map(match => match.bowling.wickets)),
-      powerplayRunRate: average(recentMatches.map(match => match.batting.powerplayRunRate)),
-      deathRunRate: average(recentMatches.map(match => match.batting.deathRunRate)),
-      deathEconomy: average(recentMatches.map(match => match.bowling.deathEconomy))
+      battingRunRate: exponentialAverage(recentMatches.map(match => match.batting.runRate)),
+      avgScore: exponentialAverage(recentMatches.map(match => match.batting.runs)),
+      bowlingEconomy: exponentialAverage(recentMatches.map(match => match.bowling.economy)),
+      dotRate: exponentialAverage(recentMatches.map(match => match.bowling.dotRate)),
+      wicketsPerMatch: exponentialAverage(recentMatches.map(match => match.bowling.wickets)),
+      powerplayRunRate: exponentialAverage(recentMatches.map(match => match.batting.powerplayRunRate)),
+      deathRunRate: exponentialAverage(recentMatches.map(match => match.batting.deathRunRate)),
+      deathEconomy: exponentialAverage(recentMatches.map(match => match.bowling.deathEconomy))
     };
   }
 
@@ -1207,7 +1268,9 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
     team1Record,
     team2Record,
     currentTeamRanges = teamRanges,
-    currentPlayerRanges = playerRanges
+    currentPlayerRanges = playerRanges,
+    venueRecord = null,
+    playersMap = players
   }) {
     const team1Recent = getRecentSummary(team1Record, 5);
     const team2Recent = getRecentSummary(team2Record, 5);
@@ -1217,6 +1280,36 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
     const team2HeadToHead = getHeadToHeadSummary(team2Record, team1);
     const team1Player = getSelectedPlayerForRanges(team1Record, currentPlayerRanges, player1Name);
     const team2Player = getSelectedPlayerForRanges(team2Record, currentPlayerRanges, player2Name);
+
+    const team1Top4 = getPlayerChoicesForRanges(team1Record, currentPlayerRanges, 4);
+    const team2Top4 = getPlayerChoicesForRanges(team2Record, currentPlayerRanges, 4);
+
+    function getMatchupBonus(teamPlayers, opponentTeamName) {
+      let bonus = 0;
+      teamPlayers.forEach(choice => {
+        const pRecord = playersMap.get(choice.player);
+        if (!pRecord) return;
+        const batVs = pRecord.batting.versus.get(opponentTeamName);
+        const bowlVs = pRecord.bowling.versus.get(opponentTeamName);
+        const batSummary = batVs && batVs.balls >= 12 ? summarizeBatter(batVs) : null;
+        const bowlSummary = bowlVs && bowlVs.balls >= 12 ? summarizeBowler(bowlVs) : null;
+        const vsBatScore = batSummary ? getBatterScoreForRanges(batSummary, currentPlayerRanges) : choice.score;
+        const vsBowlScore = bowlSummary ? getBowlerScoreForRanges(bowlSummary, currentPlayerRanges) : choice.score;
+        bonus += (Math.max(vsBatScore, vsBowlScore) - choice.score) * 0.25;
+      });
+      return bonus;
+    }
+
+    const team1ImpactScore = clamp(team1Player.score + getMatchupBonus(team1Top4, team2), 0, 1);
+    const team2ImpactScore = clamp(team2Player.score + getMatchupBonus(team2Top4, team1), 0, 1);
+
+    let tossBonus = 0.12;
+    if (venueRecord && (venueRecord.firstInningsWins + venueRecord.secondInningsWins > 4)) {
+      const total = venueRecord.firstInningsWins + venueRecord.secondInningsWins;
+      const chaseRate = venueRecord.secondInningsWins / total;
+      const skew = Math.abs(chaseRate - 0.50);
+      tossBonus = 0.12 + (skew * 0.7); // High skew exponentially boosts toss importance
+    }
 
     const scoreParts = {
       overall: { team1: getOverallRate(team1Record), team2: getOverallRate(team2Record), weight: 0.12 },
@@ -1247,16 +1340,30 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
       headToHead: { team1: team1HeadToHead.rate, team2: team2HeadToHead.rate, weight: 0.1 },
       phases: { team1: getPhaseScoreForRanges(team1Record, currentTeamRanges), team2: getPhaseScoreForRanges(team2Record, currentTeamRanges), weight: 0.08 },
       toss: {
-        team1: tossWinner === team1 ? clamp(getTossConversion(team1Record).rate + 0.12, 0, 1) : getTossConversion(team1Record).rate * 0.55,
-        team2: tossWinner === team2 ? clamp(getTossConversion(team2Record).rate + 0.12, 0, 1) : getTossConversion(team2Record).rate * 0.55,
+        team1: tossWinner === team1 ? clamp(getTossConversion(team1Record).rate + tossBonus, 0, 1) : getTossConversion(team1Record).rate * 0.55,
+        team2: tossWinner === team2 ? clamp(getTossConversion(team2Record).rate + tossBonus, 0, 1) : getTossConversion(team2Record).rate * 0.55,
         weight: 0.04
       },
-      playerImpact: { team1: team1Player.score, team2: team2Player.score, weight: 0.08 }
+      playerImpact: { team1: team1ImpactScore, team2: team2ImpactScore, weight: 0.08 }
     };
 
     const team1Score = Object.values(scoreParts).reduce((total, part) => total + (part.team1 * part.weight), 0);
     const team2Score = Object.values(scoreParts).reduce((total, part) => total + (part.team2 * part.weight), 0);
-    const team1Probability = sigmoid((team1Score - team2Score) * 9);
+
+    let team1Probability;
+    const features = extractMlFeatures(scoreParts);
+
+    if (globalMLModel) {
+      try {
+        const probs = globalMLModel.predictProbability([features], 1);
+        team1Probability = probs[0]; // Exact probability of class 1 for this sample
+      } catch (err) {
+        team1Probability = sigmoid((team1Score - team2Score) * 9);
+      }
+    } else {
+      team1Probability = sigmoid((team1Score - team2Score) * 9);
+    }
+
     const team2Probability = 1 - team1Probability;
     const winner = team1Probability >= team2Probability ? team1 : team2;
     const confidence = Math.round(Math.max(team1Probability, team2Probability) * 100);
@@ -1276,7 +1383,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
       team1Probability,
       team2Probability,
       winner,
-      confidence
+      confidence,
+      featuresArray: features
     };
   }
 
@@ -1308,6 +1416,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
       return { error: "Toss winner must be one of the selected teams." };
     }
 
+    const probabilityCalibrator = getProbabilityCalibrator();
+
     const team1Record = teams.get(team1);
     const team2Record = teams.get(team2);
     const {
@@ -1330,9 +1440,10 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
       player1Name,
       player2Name,
       team1Record,
-      team2Record
+      team2Record,
+      venueRecord: venues.get(venue)
     });
-    const probabilityCalibrator = getProbabilityCalibrator();
+    
     const team1Probability = applyProbabilityCalibrator(rawTeam1Probability, probabilityCalibrator);
     const team2Probability = 1 - team1Probability;
     const winner = team1Probability >= team2Probability ? team1 : team2;
@@ -1510,6 +1621,16 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
     venueRecord.matches += 1;
     ensureMapEntry(venueRecord.teamWins, match.winner, () => ({ wins: 0 })).wins += 1;
+    
+    const winnerWonToss = match.winner === match.tossWinner;
+    const tossDecision = match.tossDecision.toLowerCase();
+    const teamWonChasing = (winnerWonToss && tossDecision === 'field') || (!winnerWonToss && tossDecision === 'bat');
+    
+    if (teamWonChasing) {
+      venueRecord.secondInningsWins += 1;
+    } else {
+      venueRecord.firstInningsWins += 1;
+    }
 
     if (match.playerOfMatch) {
       const playerRecord = ensureMapEntry(historicalPlayers, match.playerOfMatch, () => createPlayerRecord(match.playerOfMatch));
@@ -1581,6 +1702,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
       currentVenueRecord.totalRuns += delivery.totalRuns;
       if (delivery.inning === 1) {
         currentVenueRecord.firstInningsRuns += delivery.totalRuns;
+      } else if (delivery.inning === 2) {
+        currentVenueRecord.secondInningsRuns += delivery.totalRuns;
       }
 
       if (delivery.batter) {
@@ -1589,6 +1712,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
         const playerRecord = ensureMapEntry(historicalPlayers, delivery.batter, () => createPlayerRecord(delivery.batter));
         addBattingContribution(playerRecord.batting, delivery);
+        const batterVersus = ensureMapEntry(playerRecord.batting.versus, delivery.bowlingTeam, () => createBatterRecord(delivery.batter));
+        addBattingContribution(batterVersus, delivery);
 
         const teamContribution = ensureMapEntry(playerRecord.teams, delivery.battingTeam, createTeamContributionRecord);
         teamContribution.battingRuns += delivery.batsmanRuns;
@@ -1601,6 +1726,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
         const playerRecord = ensureMapEntry(historicalPlayers, delivery.playerDismissed, () => createPlayerRecord(delivery.playerDismissed));
         addDismissal(playerRecord.batting, match.id);
+        const batterVersus = ensureMapEntry(playerRecord.batting.versus, delivery.bowlingTeam, () => createBatterRecord(delivery.playerDismissed));
+        addDismissal(batterVersus, match.id);
 
         const teamContribution = ensureMapEntry(playerRecord.teams, delivery.battingTeam, createTeamContributionRecord);
         teamContribution.matches.add(match.id);
@@ -1612,6 +1739,8 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
 
         const playerRecord = ensureMapEntry(historicalPlayers, delivery.bowler, () => createPlayerRecord(delivery.bowler));
         addBowlingContribution(playerRecord.bowling, delivery);
+        const bowlerVersus = ensureMapEntry(playerRecord.bowling.versus, delivery.battingTeam, () => createBowlerRecord(delivery.bowler));
+        addBowlingContribution(bowlerVersus, delivery);
 
         const teamContribution = ensureMapEntry(playerRecord.teams, delivery.bowlingTeam, createTeamContributionRecord);
         teamContribution.bowlingWickets += delivery.bowlerWicket ? 1 : 0;
@@ -1661,7 +1790,9 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
           team1Record,
           team2Record,
           currentTeamRanges,
-          currentPlayerRanges
+          currentPlayerRanges,
+          venueRecord: historicalVenues.get(match.venue),
+          playersMap: historicalPlayers
         });
 
         const actualTeam1Win = match.winner === match.team1 ? 1 : 0;
@@ -1687,13 +1818,58 @@ function createAnalytics({ matchesPath, deliveriesPath }) {
           rawConfidence: Math.round(favoriteProbability * 100),
           rawCorrect: correct,
           rawBrier: brier,
-          rawLogLoss: logLoss
+          rawLogLoss: logLoss,
+          features: predictionState.featuresArray // Attach for retrospective ML evaluation
         });
 
+      }
+      
+      // Accumulate ML training data without deep blocking
+      if (team1Record && team2Record && team1Record.matches >= minimumMatchesPerTeam && team2Record.matches >= minimumMatchesPerTeam) {
+          const mlState = computePredictionState({
+            team1: match.team1,
+            team2: match.team2,
+            tossWinner: match.tossWinner,
+            venue: match.venue,
+            team1Record,
+            team2Record,
+            currentTeamRanges: buildTeamRangesFor(historicalTeams),
+            currentPlayerRanges: buildPlayerRangesFor(historicalPlayers),
+            venueRecord: historicalVenues.get(match.venue),
+            playersMap: historicalPlayers
+          });
+          const feats = extractMlFeatures(mlState.scoreParts);
+          const lbl = match.winner === match.team1 ? 1 : 0;
+          mlTrainingDataset.push({ features: feats, label: lbl });
       }
 
       applyHistoricalMatch(match, historicalTeams, historicalPlayers, historicalVenues, historicalSeasons);
     });
+
+    // Train ML Object ONCE comprehensively
+    if (mlTrainingDataset.length > 50) {
+        const X = mlTrainingDataset.map(d => d.features);
+        const Y = mlTrainingDataset.map(d => d.label);
+        globalMLModel = new RandomForestClassifier({ nEstimators: 30, treeOptions: { maxDepth: 10 }, seed: 42 });
+        globalMLModel.train(X, Y);
+        
+        // Retrospectively apply True ML output
+        predictions.forEach(item => {
+            if (item.features) {
+                const probs = globalMLModel.predictProbability([item.features], 1);
+                item.rawTeam1Probability = probs[0];
+                item.rawTeam2Probability = 1 - item.rawTeam1Probability;
+                const favorite = item.rawTeam1Probability >= item.rawTeam2Probability ? item.team1 : item.team2;
+                item.rawFavoriteProbability = item.rawTeam1Probability >= item.rawTeam2Probability ? item.rawTeam1Probability : item.rawTeam2Probability;
+                item.rawRawPredictedWinner = favorite; // override mechanical winner!
+                item.rawCorrect = favorite === item.actualWinner;
+                
+                const clippedTeam1Probability = clamp(item.rawTeam1Probability, 1e-15, 1 - 1e-15);
+                item.rawBrier = (clippedTeam1Probability - item.actualTeam1Win) ** 2;
+                item.rawLogLoss = -((item.actualTeam1Win * Math.log(clippedTeam1Probability)) + ((1 - item.actualTeam1Win) * Math.log(1 - clippedTeam1Probability)));
+            }
+        });
+    }
 
     const evaluatedMatches = predictions.length;
     const skippedMatches = matches.length - evaluatedMatches;

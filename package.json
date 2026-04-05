@@ -5,5 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "backtest": "node backtest.js"
+  },
+  "dependencies": {
+    "ml-random-forest": "^2.1.0"
   }
 }
